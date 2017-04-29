@@ -1,4 +1,4 @@
-import sbtrelease.ReleasePlugin.autoImport.ReleaseTransformations._
+import ReleaseTransformations._
 
 organization := "de.sebbraun.helpers"
 
@@ -53,16 +53,18 @@ enablePlugins(SignedAetherPlugin)
 overridePublishSignedBothSettings
 
 releaseProcess := Seq[ReleaseStep](
-  checkSnapshotDependencies,              // : ReleaseStep
-  inquireVersions,                        // : ReleaseStep
-  runTest,                                // : ReleaseStep
-  setReleaseVersion,                      // : ReleaseStep
-  commitReleaseVersion,                   // : ReleaseStep, performs the initial git checks
-  tagRelease,                             // : ReleaseStep
-  publishArtifacts,                       // : ReleaseStep, checks whether `publishTo` is properly set up
-  setNextVersion,                         // : ReleaseStep
-  commitNextVersion,                      // : ReleaseStep
-  pushChanges                             // : ReleaseStep, also checks that an upstream branch is properly configured
+  checkSnapshotDependencies,
+  inquireVersions,
+  runTest,
+  setReleaseVersion,
+  commitReleaseVersion, // performs the initial git checks
+  tagRelease,
+  publishArtifacts, // checks whether `publishTo` is properly set up
+  setNextVersion,
+  commitNextVersion,
+  pushChanges // also checks that an upstream branch is properly configured
 )
 
 releasePublishArtifactsAction := PgpKeys.publishSigned.value
+
+releaseCrossBuild in ThisBuild := true
