@@ -23,7 +23,7 @@ package de.sebbraun.lifecycle.simple
 import org.scalatest.AsyncFlatSpec
 
 import scala.concurrent.Future
-import scala.util.Success
+import scala.util.{Failure, Success}
 
 /**
   * Created by braunse on 29.04.17.
@@ -34,10 +34,10 @@ class ZeroComponentLifecycleSpec extends AsyncFlatSpec {
     lcm.start().onComplete(_ => lcm.stop())
 
     Future.sequence(Seq(
-      lcm.startFuture.transform(Success(_)),
-      lcm.stopFuture.transform(Success(_)),
-      lcm.afterStart.transform(Success(_)),
-      lcm.afterStop.transform(Success(_))
+      lcm.startFuture.map(Success(_)).recover({ case t: Throwable => Failure(t) }),
+      lcm.stopFuture.map(Success(_)).recover({ case t: Throwable => Failure(t) }),
+      lcm.afterStart.map(Success(_)).recover({ case t: Throwable => Failure(t) }),
+      lcm.afterStop.map(Success(_)).recover({ case t: Throwable => Failure(t) })
     )).map({ fs =>
         assert(fs.forall(_.isSuccess))
     })
