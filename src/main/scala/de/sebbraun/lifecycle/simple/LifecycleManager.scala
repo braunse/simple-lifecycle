@@ -26,7 +26,64 @@ import scala.concurrent.duration.Duration
 import scala.concurrent.{Await, ExecutionContext, Future, Promise}
 import scala.util.{Failure, Success}
 
+/** Manages the startup and shutdown process of a complex system.
+  *
+  * A `LifecycleManager` manages instances of [[LifecycleComponent]].
+  * The lifecycle defined by this class is very simple and not sophisticated at all:
+  *
+  * =Usage example=
+  *
+  * {{{
+  *   val lifeCycleManager = new LifecycleManager
+  *   val component1 = lifeCycleManager.component("component1")( spec =>
+  *     spec
+  *       .toStart({
+  *         println("Component1 started")
+  *       })
+  *       .toStop({
+  *         println("Component1 stopped")
+  *       })
+  *   )
+  *   val component2 = lifeCycleManager.component("component2")( spec =>
+  *     spec
+  *       .depend(component1)
+  *       .toStart({
+  *         println("Component2 started")
+  *       })
+  *       .toStop({
+  *         println("Component2 stopped")
+  *       })
+  *   )
+  *   lifeCycleManager.startAndWait()
+  *   lifeCycleManager.stopAndWait()
+  * }}}
+  *
+  * should output:
+  *
+  * {{{
+  *   Component1 started
+  *   Component2 started
+  *   Component2 stopped
+  *   Component1 stopped
+  * }}}
+  *
+  * =Rules=
+  *
+  * The following rules apply:
+  *
+  *  - All startup and shutdown operations are run asynchronously, in a user-specified [[scala.concurrent.ExecutionContext]].
+  *  - When no dependency is defined between two components, their startup and shutdown hooks may run concurrently.
+  *  - When component A depends on component B, then A's startup hook will run before B's startup hook
+  *  - When component A depends on component B, then A's shutdown hook will not run until B's shutdown hook has finished,
+  *  - ''Unless'' the dependency was specified as [[LifecycleComponent.Component2DependencyOps.noKeepAlive]], in which
+  * case the A's shutdown hook may run concurrently to B's shutdown hook.
+  *
+  * @groupname hooks Hooks for asynchronous notification about lifecycle events
+  * @groupname lifecycle Starting and stopping the system lifecycle
+  * @groupname creation Component Creation
+  */
 class LifecycleManager {
+
   import LifecycleComponent._
   import ComponentSpec._
 
@@ -43,11 +100,26 @@ class LifecycleManager {
   private[simple] val stopFuture = stopPromise.future
 
   private val afterStartPromise = Promise[Unit]()
+  /** Will resolve ''asynchronously'' after all startup actions are done.
+    * @group hooks
+    */
   val afterStart: Future[Unit] = afterStartPromise.future
 
   private val afterStopPromise = Promise[Unit]()
+  /** Will resolve ''asynchronously'' after all shutdown actions are done.
+    * @group hooks
+    */
   val afterStop: Future[Unit] = afterStopPromise.future
 
+  /** Triggers the startup of the `LifecycleManager` and of all the [[LifecycleComponent]]s it manages.
+    *
+    * @param ec A user-supplied [[scala.concurrent.ExecutionContext]] in which all startup actions will run
+    * @return A Future that resolves when all components have started up.
+    *
+    *         The value of the future will be an appropriate [[LifecycleComponent.StartupResult]]
+    *         for every managed component.
+    * @group lifecycle
+    */
   def start()(implicit ec: ExecutionContext): Future[Seq[LifecycleComponent.StartupResult]] = {
     components.foreach(_.triggerStart())
     startPromise.success(StartupOkay("manager"))
@@ -59,10 +131,24 @@ class LifecycleManager {
     r
   }
 
+  /** Triggers the startup of the `LifecycleManager` and waits for all startup actions to complete.
+    *
+    * @param timeout How long to wait for the startup to finish.
+    * @param ec A user-supplied [[scala.concurrent.ExecutionContext]] in which all startup actions will run
+    * @return An appropriate [[LifecycleComponent.StartupResult]] for every managed component.
+    * @see LifecycleManager.start
+    * @group lifecycle
+    */
   def startAndWait(timeout: Duration = Duration.Inf)(implicit ec: ExecutionContext): Seq[LifecycleComponent.StartupResult] = {
     Await.result(start(), timeout)
   }
 
+  /** Triggers the shutdown of the `LifecycleManager` and all of the [[LifecycleComponent]]s it manages.
+    *
+    * @param ec A user-supplied [[scala.concurrent.ExecutionContext]] in which all shutdown actions will run
+    * @return An appropriate [[LifecycleComponent.StopResult]] for every managed component.
+    * @group lifecycle
+    */
   def stop()(implicit ec: ExecutionContext): Future[Seq[LifecycleComponent.StopResult]] = {
     stopPromise.success(LifecycleComponent.StopOkay("manager"))
     val r = Future.sequence(components.map(_.stopFuture))
@@ -73,6 +159,14 @@ class LifecycleManager {
     r
   }
 
+  /** Triggers the shutdown of the `LifecycleManager` and wait for all shutdown actions to finish.
+    *
+    * @param timeout How long to wait for shutdown to finish.
+    * @param ec A user-supplied [[scala.concurrent.ExecutionContext]] in which all shutdown actions will run
+    * @return An appropriate [[LifecycleComponent.StopResult]] for every managed component.
+    * @see LifecycleManager.stop
+    * @group lifecycle
+    */
   def stopAndWait(timeout: Duration = Duration.Inf)(implicit ec: ExecutionContext): Seq[LifecycleComponent.StopResult] = {
     Await.result(stop(), timeout)
   }

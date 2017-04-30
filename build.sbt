@@ -68,3 +68,7 @@ releaseProcess := Seq[ReleaseStep](
 releasePublishArtifactsAction := PgpKeys.publishSigned.value
 
 releaseCrossBuild in ThisBuild := true
+
+autoAPIMappings := true
+
+scalacOptions in (Compile,doc) ++= Seq("-groups", "-implicits")

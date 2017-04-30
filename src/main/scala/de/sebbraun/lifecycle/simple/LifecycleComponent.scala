@@ -25,8 +25,12 @@ import java.time.{Duration, Instant}
 import scala.concurrent.{ExecutionContext, Future, Promise}
 import scala.util.{Failure, Success}
 
-/**
-  * Created by braunse on 27.04.17.
+/** A handle to the life cycle of a user-defined component.
+  *
+  * Instances have no user-facing methods and can only be used to declare dependencies.
+  *
+  * `LifecycleComponent`s are managed by a [[LifecycleManager]].
+  * See [[LifecycleManager.component]] for how to create them.
   */
 final class LifecycleComponent private[simple](private val componentName: String,
                                                private val dependencies: Seq[LifecycleComponent.Dependency],
