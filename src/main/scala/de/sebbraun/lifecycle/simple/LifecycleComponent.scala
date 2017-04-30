@@ -55,19 +55,21 @@ final class LifecycleComponent private[simple](private val componentName: String
   private[simple] def triggerStart()(implicit ec: ExecutionContext): Unit = {
     val collectedStopFuture = Future.fold(manager.stopFuture +: reverseDependencies)(())((_, _) => ())
 
-    val collectedStartFuture = dependencies.foldLeft(manager.startFuture map (_ => List[String]())) { (soFarFuture, dep) =>
-      soFarFuture flatMap { l =>
-        dep.component.startFuture map {
-          case StartupOkay(_) =>
-            l
-          case StartupFailed(name, _) =>
-            name :: l
-          case DependencyError(name, _) =>
-            name :: l
-          case StartupBug(_, _) =>
-            l
+    val collectedStartFuture = dependencies.foldLeft(manager.startFuture map (_ => List[String]())) {
+      (soFarFuture, dep) =>
+        soFarFuture flatMap {
+          l =>
+            dep.component.startFuture map {
+              case StartupOkay(_) =>
+                l
+              case StartupFailed(name, _) =>
+                name :: l
+              case DependencyError(name, _) =>
+                name :: l
+              case StartupBug(_, _) =>
+                l
+            }
         }
-      }
     }
 
     collectedStartFuture.onComplete {
@@ -116,10 +118,11 @@ final class LifecycleComponent private[simple](private val componentName: String
     }
   }
 
-  dependencies.foreach({ dep =>
-    if (dep.keepAlive) {
-      dep.component.reverseDepend(this)
-    }
+  dependencies.foreach({
+    dep =>
+      if (dep.keepAlive) {
+        dep.component.reverseDepend(this)
+      }
   })
 }
 
