@@ -28,12 +28,12 @@ import scala.util.{Failure, Success}
 
 class LifecycleManager {
   import LifecycleComponent._
+  import ComponentSpec._
 
   private var components: Seq[LifecycleComponent] = Seq()
 
-  private[simple] def register(component: LifecycleComponent) = {
+  private def register(component: LifecycleComponent) = {
     components :+= component
-    component.manager = this
   }
 
   private val startPromise = Promise[StartupResult]()
@@ -76,6 +76,37 @@ class LifecycleManager {
   def stopAndWait(timeout: Duration = Duration.Inf)(implicit ec: ExecutionContext): Seq[LifecycleComponent.StopResult] = {
     Await.result(stop(), timeout)
   }
+
+  /** Create a new [[de.sebbraun.lifecycle.simple.LifecycleComponent]] that will be managed by this Manager.
+    *
+    * =Usage example=
+    * {{{
+    *   val lifeCycleManager = new LifecycleManager()
+    *   val component = lifeCycleManager.component(<NAME>) {
+    *     _.depend(<DEPENDENCY1>, <DEPENDENCY2>...)
+    *      .toStart(<ACTION>)
+    *      .toStopAsync(implicit ec => <ASYNC-ACTION>)
+    *   }
+    * }}}
+    *
+    * @param name The name of the LifecycleComponent to create.
+    * @param specification A function that specified dependencies and actions for this component.
+    *                      Only functions that specify both a start action and a stop action are accepted.
+    * @return A representation of the new component that may be used to express dependencies in other components.
+    * @see [[ComponentSpec]]
+    * @group creation
+    */
+  def component(name: String)
+               (specification: ComponentSpec[Unspecified, Unspecified] =>
+                 ComponentSpec[Specified, Specified]
+               ): LifecycleComponent = {
+    val initial = new ComponentSpec[Unspecified, Unspecified]()
+    val spec = specification(initial)
+    val comp = new LifecycleComponent(name, spec.dependencies, spec.starter, spec.stopper, this)
+    register(comp)
+    comp
+  }
+
 }
 
 object LifecycleManager {

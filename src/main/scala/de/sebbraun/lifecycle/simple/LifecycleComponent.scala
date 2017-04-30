@@ -28,14 +28,13 @@ import scala.util.{Failure, Success}
 /**
   * Created by braunse on 27.04.17.
   */
-class LifecycleComponent(private val componentName: String,
-                         private val dependencies: Seq[LifecycleComponent.Dependency],
-                         private val start: ExecutionContext => Unit,
-                         private val stop: ExecutionContext => Unit) {
+final class LifecycleComponent private[simple](private val componentName: String,
+                                               private val dependencies: Seq[LifecycleComponent.Dependency],
+                                               private val start: ExecutionContext => Future[Unit],
+                                               private val stop: ExecutionContext => Future[Unit],
+                                               private val manager: LifecycleManager) {
 
   import LifecycleComponent._
-
-  private[simple] var manager: LifecycleManager = _
 
   private val startPromise: Promise[StartupResult] = Promise[StartupResult]()
   private[simple] val startFuture: Future[StartupResult] = startPromise.future
@@ -70,34 +69,46 @@ class LifecycleComponent(private val componentName: String,
     collectedStartFuture.onComplete {
       case Success(List()) =>
         val begin = Instant.now()
-        try {
-          start(ec)
+        start(ec).onComplete(r => {
           val end = Instant.now()
-          LifecycleManager.logger.info(s"Started component $componentName in ${Duration.between(begin, end).toMillis} ms")
-          startPromise.success(StartupOkay(componentName))
-        } catch {
-          case e: Exception =>
-            val end = Instant.now()
-            LifecycleManager.logger.info(s"Component $componentName failed to start up after ${Duration.between(begin, end).toMillis}")
-            startPromise.success(StartupFailed(componentName, e))
-        }
+          r match {
+            case Success(_) =>
+              LifecycleManager.logger.info(s"Started component $componentName in ${
+                Duration.between(begin, end).toMillis
+              } ms")
+              startPromise.success(StartupOkay(componentName))
+            case Failure(err) if err.isInstanceOf[Exception] =>
+              LifecycleManager.logger.info(s"Component $componentName failed to start up after ${
+                Duration.between(begin, end).toMillis
+              }")
+              startPromise.success(StartupFailed(componentName, err))
+            case Failure(err) =>
+              startPromise.failure(err)
+          }
+        })
       case Success(List(missing@_*)) =>
         startPromise.success(DependencyError(componentName, missing))
       case Failure(e) =>
         startPromise.failure(e)
     }
 
-    collectedStopFuture.onComplete { _ =>
-      val begin = Instant.now()
-      try {
-        stop(ec)
-        val end = Instant.now()
-        LifecycleManager.logger.info(s"Stopped component $componentName in ${Duration.between(begin, end).toMillis} ms")
-        stopPromise.success(StopOkay(componentName))
-      } catch {
-        case e: Exception =>
-          stopPromise.success(StopFailure(componentName, e))
-      }
+    collectedStopFuture.onComplete {
+      _ =>
+        val begin = Instant.now()
+        stop(ec).onComplete(r => {
+          val end = Instant.now()
+          r match {
+            case Success(_) =>
+              LifecycleManager.logger.info(s"Stopped component $componentName in ${
+                Duration.between(begin, end).toMillis
+              } ms")
+              stopPromise.success(StopOkay(componentName))
+            case Failure(err) if err.isInstanceOf[Exception] =>
+              stopPromise.success(StopFailure(componentName, err))
+            case Failure(err) =>
+              stopPromise.failure(err)
+          }
+        })
     }
   }
 
@@ -149,34 +160,23 @@ object LifecycleComponent {
     def isFailure = true
   }
 
-  class Dependency(val component: LifecycleComponent, val keepAlive: Boolean = true)
+  class Dependency(private[simple] val component: LifecycleComponent, private[simple] val keepAlive: Boolean = true)
 
   implicit def component2Dependency(component: LifecycleComponent): Dependency = new Dependency(component)
 
-  implicit class Component2DependencyOps(val component: LifecycleComponent) extends AnyVal {
+  implicit class Component2DependencyOps(private val component: LifecycleComponent) extends AnyVal {
+    /** Create a [[Dependency]] without keep-alive semantics.
+      *
+      * @return A dependency which, when used, will not delay the stop action of the dependency until the using component's stop action is finished.
+      */
     def noKeepAlive: Dependency = new Dependency(component, false)
 
+    /** Create a [[Dependency]] with keep-alive semantics.
+      * This method is not strictly needed as the implicit conversion from [[LifecycleComponent]] to [[Dependency]] has keep-alive semantics.
+      *
+      * @return A dependency which, when used, will delay the stop action of the dependency until the using component's stop action is finished.
+      */
     def keepAlive: Dependency = new Dependency(component, true)
   }
 
-  def apply(lifecycleManager: LifecycleManager, name: String) = new {
-    stage1 =>
-
-    var dependencies: Seq[Dependency] = Seq()
-
-    def dependOn(dependency: Dependency): stage1.type = {
-      dependencies :+= dependency
-      stage1
-    }
-
-    def toStart(start: (ExecutionContext) => Unit) = new {
-      stage2 =>
-
-      def toStop(stop: (ExecutionContext) => Unit): LifecycleComponent = {
-        val component = new LifecycleComponent(name, dependencies, start, stop)
-        lifecycleManager.register(component)
-        component
-      }
-    }
-  }
 }

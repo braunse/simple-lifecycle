@@ -31,14 +31,14 @@ class OneComponentLifecycleSpec extends AsyncFlatSpec {
     var stopCalled = false
     var startSequenceViolation = false
     val lcm = new LifecycleManager()
-    LifecycleComponent(lcm, "test")
-      .toStart({ implicit ec =>
+    lcm.component("test")(
+      _.toStart({
         startCalled = true
         startSequenceViolation = stopCalled
-      })
-      .toStop({ implicit ec =>
+      }).toStop({
         stopCalled = true
       })
+    )
     lcm.start().flatMap(_ => lcm.stop()).flatMap(_ => {
       assert(startCalled && stopCalled && !startSequenceViolation)
     })
